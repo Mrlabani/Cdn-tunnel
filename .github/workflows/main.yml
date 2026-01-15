@@ -1,4 +1,4 @@
-name: Ubuntu Root VPS (Stable)
+name: Ubuntu Root VPS (Fixed & Stable)
 
 on:
   workflow_dispatch:
@@ -12,18 +12,7 @@ jobs:
     - name: Update system
       run: |
         sudo apt update -y
-        sudo apt upgrade -y
-
-    - name: Install packages
-      run: |
-        sudo apt install -y openssh-server curl wget unzip openssl util-linux
-
-    - name: Setup SWAP (4GB)
-      run: |
-        sudo fallocate -l 4G /swapfile
-        sudo chmod 600 /swapfile
-        sudo mkswap /swapfile
-        sudo swapon /swapfile
+        sudo apt install -y openssh-server curl wget openssl
 
     - name: Setup storage
       run: |
@@ -33,9 +22,9 @@ jobs:
 
     - name: Generate ROOT password
       run: |
-        PASS=$(openssl rand -base64 12)
+        PASS=$(openssl rand -hex 8)
         echo "ROOT_PASS=$PASS" >> $GITHUB_ENV
-        echo "ROOT PASSWORD: $PASS"
+        echo "Generated password"
 
     - name: Enable ROOT SSH
       run: |
@@ -52,32 +41,33 @@ jobs:
 
     - name: Start Cloudflare tunnel
       run: |
-        cloudflared tunnel --url tcp://localhost:22 --no-autoupdate > tunnel.log 2>&1 &
-        sleep 10
-        SSH_LINE=$(grep -oE 'tcp://[^ ]+' tunnel.log | head -n 1)
-        echo "SSH_LINE=$SSH_LINE" >> $GITHUB_ENV
-        echo "Tunnel: $SSH_LINE"
+        cloudflared tunnel --url tcp://localhost:22 --no-autoupdate > cf.log 2>&1 &
+        sleep 15
+        URL=$(grep -oE 'tcp://[^ ]+' cf.log | head -n 1)
+        if [ -z "$URL" ]; then
+          echo "Tunnel failed"; cat cf.log; exit 1
+        fi
+        echo "SSH_URL=$URL" >> $GITHUB_ENV
 
-    - name: Telegram notify
+    - name: Send Telegram notification
       run: |
-        MESSAGE="
-🔥 *Ubuntu ROOT VPS Ready*
+        TEXT="🔥 *Ubuntu ROOT VPS Ready*
 
-👤 *User:* root
-🔑 *Password:* \`${ROOT_PASS}\`
+👤 User: root
+🔑 Password: \`${ROOT_PASS}\`
 
-🌍 *SSH:*
-\`${SSH_LINE}\`
+🌍 SSH:
+\`${SSH_URL}\`
 
-📁 *Storage:* /mnt/workspace
-⏱ *Auto Destroy:* 6 hours
-"
+📁 Storage: /mnt/workspace
+⏱ Auto destroy: 6 hours"
+
         curl -s -X POST "https://api.telegram.org/bot${{ secrets.TG_BOT_TOKEN }}/sendMessage" \
           -d chat_id="${{ secrets.TG_CHAT_ID }}" \
           -d parse_mode=Markdown \
-          -d text="$MESSAGE"
+          -d text="$TEXT"
 
     - name: Keep VPS alive
       run: |
-        echo "VPS is running..."
+        echo "VPS running..."
         sleep 21600
