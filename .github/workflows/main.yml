@@ -1,4 +1,4 @@
-name: Ubuntu Root VPS (Telegram Notify)
+name: Ubuntu Root VPS (Stable)
 
 on:
   workflow_dispatch:
@@ -9,71 +9,75 @@ jobs:
     timeout-minutes: 360
 
     steps:
-    - name: 🔄 Update system
+    - name: Update system
       run: |
         sudo apt update -y
         sudo apt upgrade -y
 
-    - name: 🔧 Install packages
+    - name: Install packages
       run: |
-        sudo apt install -y openssh-server curl wget unzip sudo util-linux openssl
+        sudo apt install -y openssh-server curl wget unzip openssl util-linux
 
-    - name: 💾 Setup SWAP (4GB)
+    - name: Setup SWAP (4GB)
       run: |
         sudo fallocate -l 4G /swapfile
         sudo chmod 600 /swapfile
         sudo mkswap /swapfile
         sudo swapon /swapfile
-        echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
 
-    - name: 📁 Setup /mnt storage
+    - name: Setup storage
       run: |
         sudo mkdir -p /mnt/workspace
         sudo chmod 777 /mnt/workspace
         df -h
 
-    - name: 🔐 Generate ROOT password
+    - name: Generate ROOT password
       run: |
         PASS=$(openssl rand -base64 12)
         echo "ROOT_PASS=$PASS" >> $GITHUB_ENV
-        echo "ROOT_PASS=$PASS"
+        echo "ROOT PASSWORD: $PASS"
 
-    - name: 👑 Enable ROOT SSH
+    - name: Enable ROOT SSH
       run: |
         echo "root:${ROOT_PASS}" | sudo chpasswd
         sudo sed -i 's/^#\?PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config
         sudo sed -i 's/^#\?PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config
         sudo systemctl restart ssh
 
-    - name: ☁️ Install cloudflared
+    - name: Install cloudflared
       run: |
         wget -q https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64
         chmod +x cloudflared-linux-amd64
         sudo mv cloudflared-linux-amd64 /usr/local/bin/cloudflared
 
-    - name: 🌍 Start Tunnel + Telegram Notify
+    - name: Start Cloudflare tunnel
       run: |
-        echo "Starting Cloudflare Tunnel..."
-        TUNNEL_OUTPUT=$(cloudflared tunnel --url tcp://localhost:22 --no-autoupdate 2>&1 | tee /tmp/tunnel.log)
+        cloudflared tunnel --url tcp://localhost:22 --no-autoupdate > tunnel.log 2>&1 &
+        sleep 10
+        SSH_LINE=$(grep -oE 'tcp://[^ ]+' tunnel.log | head -n 1)
+        echo "SSH_LINE=$SSH_LINE" >> $GITHUB_ENV
+        echo "Tunnel: $SSH_LINE"
 
-        SSH_LINE=$(grep -oE 'tcp://[^ ]+' /tmp/tunnel.log | head -n 1)
-
+    - name: Telegram notify
+      run: |
         MESSAGE="
 🔥 *Ubuntu ROOT VPS Ready*
 
 👤 *User:* root
 🔑 *Password:* \`${ROOT_PASS}\`
 
-🌍 *SSH Address:*
+🌍 *SSH:*
 \`${SSH_LINE}\`
 
 📁 *Storage:* /mnt/workspace
-⏱ *Auto Destroy:* 6 Hours
+⏱ *Auto Destroy:* 6 hours
 "
-
         curl -s -X POST "https://api.telegram.org/bot${{ secrets.TG_BOT_TOKEN }}/sendMessage" \
           -d chat_id="${{ secrets.TG_CHAT_ID }}" \
           -d parse_mode=Markdown \
           -d text="$MESSAGE"
 
-        tail -f /dev/null
+    - name: Keep VPS alive
+      run: |
+        echo "VPS is running..."
+        sleep 21600
