@@ -1,10 +1,7 @@
-name: Manual VPS (ngrok SSH)
+name: Manual Ubuntu VPS (ngrok)
 
 on:
   workflow_dispatch:
-
-permissions:
-  contents: read
 
 jobs:
   vps:
@@ -12,22 +9,20 @@ jobs:
     timeout-minutes: 360
 
     steps:
-    - name: Install packages
+    - name: Install base packages
       run: |
         sudo apt update
         sudo apt install -y openssh-server curl unzip jq tmux
 
-    - name: Generate SSH password
-      id: pass
-      run: |
-        PASS=$(openssl rand -base64 12)
-        echo "PASS=$PASS" >> $GITHUB_ENV
-
-    - name: Setup SSH
+    - name: Create SSH user
       run: |
         sudo useradd -m runner || true
+        PASS=$(openssl rand -hex 8)
+        echo "PASS=$PASS" >> $GITHUB_ENV
         echo "runner:$PASS" | sudo chpasswd
+        sudo usermod -aG sudo runner
         sudo sed -i 's/^#\?PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config
+        sudo sed -i 's/^#\?PermitRootLogin.*/PermitRootLogin no/' /etc/ssh/sshd_config
         sudo systemctl restart ssh
 
     - name: Install ngrok
@@ -43,19 +38,25 @@ jobs:
         sleep 10
         curl -s http://127.0.0.1:4040/api/tunnels > tunnels.json
 
-    - name: Show SSH info
+    - name: Show SSH access
       run: |
         URL=$(jq -r '.tunnels[0].public_url' tunnels.json)
+        HOST=$(echo $URL | sed 's|tcp://||' | cut -d: -f1)
+        PORT=$(echo $URL | cut -d: -f3)
         echo ""
         echo "=============================="
-        echo " SSH ACCESS READY"
+        echo " SSH ACCESS"
         echo "=============================="
-        echo "User: runner"
-        echo "Password: $PASS"
-        echo "Tunnel: $URL"
+        echo "User     : runner"
+        echo "Password : $PASS"
+        echo "Host     : $HOST"
+        echo "Port     : $PORT"
         echo ""
         echo "SSH COMMAND:"
-        echo "ssh runner@$(echo $URL | sed 's|tcp://||' | cut -d: -f1) -p $(echo $URL | cut -d: -f3)"
+        echo "ssh runner@$HOST -p $PORT"
+        echo ""
+        echo "AFTER LOGIN RUN:"
+        echo "sudo -i"
         echo "=============================="
 
     - name: Keep VPS alive
