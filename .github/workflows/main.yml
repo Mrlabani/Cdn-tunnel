@@ -1,4 +1,4 @@
-name: Manual Ubuntu VPS (ngrok)
+name: Ubuntu VPS (Docker + aria2)
 
 on:
   workflow_dispatch:
@@ -12,7 +12,15 @@ jobs:
     - name: Install base packages
       run: |
         sudo apt update
-        sudo apt install -y openssh-server curl unzip jq tmux
+        sudo apt install -y \
+          openssh-server \
+          curl unzip jq tmux \
+          aria2
+
+    - name: Install Docker
+      run: |
+        curl -fsSL https://get.docker.com | sudo sh
+        sudo usermod -aG docker runner || true
 
     - name: Create SSH user
       run: |
@@ -45,7 +53,7 @@ jobs:
         PORT=$(echo $URL | cut -d: -f3)
         echo ""
         echo "=============================="
-        echo " SSH ACCESS"
+        echo " SSH ACCESS READY"
         echo "=============================="
         echo "User     : runner"
         echo "Password : $PASS"
@@ -55,7 +63,7 @@ jobs:
         echo "SSH COMMAND:"
         echo "ssh runner@$HOST -p $PORT"
         echo ""
-        echo "AFTER LOGIN RUN:"
+        echo "AFTER LOGIN (ROOT):"
         echo "sudo -i"
         echo "=============================="
 
